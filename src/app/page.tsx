@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
 
 // --- CONFIGURATION ---
-const API_BASE_URL = "https://func-cs7080nm-api.azurewebsites.net/api";
+const API_BASE_URL = "/api";
 
 interface TelemetryData {
   id: string;
@@ -26,6 +27,8 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [isLive, setIsLive] = useState(false); 
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
+  const [user, setUser] = useState<{name: string, email: string} | null>(null);
+  const router = useRouter();
 
   const fetchTelemetry = async () => {
     setLoading(true);
@@ -53,7 +56,20 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (!storedUser) {
+      router.push('/login');
+      return;
+    }
+    try {
+      setUser(JSON.parse(storedUser));
+    } catch {
+      router.push('/login');
+      return;
+    }
+
     fetchTelemetry();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -104,15 +120,45 @@ export default function Dashboard() {
     isAlert: d.alert
   }));
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center">
+          <svg className="animate-spin h-10 w-10 text-emerald-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-slate-500 font-semibold">Verifying secure connection...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans transition-colors duration-500 pb-20">
       <div className="max-w-7xl mx-auto">
         
         {/* Header and Controls */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <header>
+          <header className="flex-1">
             <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Environmental Monitor</h1>
             <p className="text-slate-500 mt-1 font-medium">CS7080NM Prototype</p>
+            {user && (
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-sm font-semibold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200">
+                  👤 Welcome, {user.name}
+                </span>
+                <button 
+                  onClick={() => {
+                    localStorage.removeItem('user');
+                    router.push('/login');
+                  }}
+                  className="text-sm font-semibold text-slate-500 hover:text-red-600 transition-colors underline underline-offset-2"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
           </header>
 
           <div className="flex items-center gap-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto justify-between">

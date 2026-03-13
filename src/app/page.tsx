@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
 
 // --- CONFIGURATION ---
-// Replace this with your actual Azure Function BASE URL (without /latest)
 const API_BASE_URL = "https://func-cs7080nm-api.azurewebsites.net/api";
 
 interface TelemetryData {
@@ -15,6 +14,7 @@ interface TelemetryData {
   lightLevel: number;
   airQuality: number;
   alert: boolean;
+  alertReasons?: string[]; // Added to support our new advanced edge payload
   ts_device: number;
   ts_cloud: string;
 }
@@ -30,7 +30,7 @@ export default function Dashboard() {
   const fetchTelemetry = async () => {
     setLoading(true);
     try {
-      // Fetch the last 50 records for our history and charts
+      // Fetch the last 50 records for our history, charts, and table
       const response = await fetch(`${API_BASE_URL}/history?limit=50`);
       if (!response.ok) {
         throw new Error('Failed to fetch data');
@@ -74,7 +74,7 @@ export default function Dashboard() {
   };
 
   const getHumStyle = (hum: number) => {
-    if (hum >= 60) return { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', label: 'text-blue-500', icon: '💧', status: 'High Humidity' };
+    if (hum >= 60) return { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', label: 'text-blue-500', icon: '💧', status: 'High Hum' };
     if (hum <= 30) return { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', label: 'text-amber-500', icon: '🏜️', status: 'Dry' };
     return { bg: 'bg-teal-50', border: 'border-teal-200', text: 'text-teal-700', label: 'text-teal-500', icon: '💦', status: 'Optimal' };
   };
@@ -97,15 +97,16 @@ export default function Dashboard() {
 
   // Format data for Recharts (reverse to show oldest to newest left-to-right)
   const chartData = [...historyData].reverse().map(d => ({
-    time: new Date(d.ts_cloud).toLocaleTimeString([], { hour12: false }),
-    Temperature: d.temperature,
-    Humidity: d.humidity,
+    time: new Date(d.ts_cloud).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' }),
+    Temperature: parseFloat(d.temperature.toFixed(1)),
+    Humidity: parseFloat(d.humidity.toFixed(1)),
     AirQuality: d.airQuality,
+    isAlert: d.alert
   }));
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans transition-colors duration-500">
-      <div className="max-w-6xl mx-auto">
+    <main className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans transition-colors duration-500 pb-20">
+      <div className="max-w-7xl mx-auto">
         
         {/* Header and Controls */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -150,22 +151,36 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Global Safety Alert Banner */}
+        {/* ADVANCED SAFETY ALERT BANNER */}
         {data?.alert && (
-          <div className="bg-red-500 text-white p-4 rounded-xl mb-6 shadow-lg animate-pulse flex items-center gap-4 border-2 border-red-700">
-            <span className="text-4xl">🚨</span>
-            <div>
-              <h3 className="font-bold text-lg tracking-wide uppercase">Safety Alert Triggered</h3>
-              <p className="text-red-100 text-sm">Environmental conditions have exceeded safe operating thresholds. Investigation required.</p>
+          <div className="bg-red-600 text-white p-5 rounded-xl mb-6 shadow-lg animate-pulse flex flex-col md:flex-row items-start md:items-center gap-4 border-2 border-red-800">
+            <span className="text-5xl drop-shadow-md hidden md:block">🚨</span>
+            <div className="flex-1">
+              <h3 className="font-bold text-xl tracking-wide uppercase mb-1 flex items-center gap-2">
+                <span className="md:hidden">🚨</span> Safety Alert Triggered
+              </h3>
+              <p className="text-red-100 text-sm mb-2">Environmental conditions have exceeded safe operating thresholds.</p>
+              
+              {/* Dynamically list the reasons sent from the ESP32 */}
+              {data.alertReasons && data.alertReasons.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {data.alertReasons.map((reason, idx) => (
+                    <span key={idx} className="bg-white text-red-700 text-xs font-bold px-3 py-1 rounded-full shadow-sm border border-red-200">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* MAIN DASHBOARD GRID */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           
-          {/* LATEST READINGS (Left Side - 2 columns on large screens) */}
+          {/* LATEST READINGS (Left Side) */}
           <div className="lg:col-span-1 flex flex-col gap-6">
-            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden h-full">
               <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
                 <h2 className="text-sm font-semibold text-white uppercase tracking-wider">Current Status</h2>
                 {isLive ? (
@@ -180,8 +195,7 @@ export default function Dashboard() {
                   <div className="col-span-2 text-center text-slate-400 py-8">Loading...</div>
                 ) : (
                   <>
-                    {/* Temp */}
-                    <div className={`${tempStyle?.bg} border ${tempStyle?.border} rounded-xl p-4 transition-colors duration-500 relative flex flex-col items-center justify-center text-center`}>
+                    <div className={`${tempStyle?.bg} border ${tempStyle?.border} rounded-xl p-4 transition-colors duration-500 flex flex-col items-center justify-center text-center`}>
                       <span className="text-2xl mb-1">{tempStyle?.icon}</span>
                       <div className={`text-3xl font-black ${tempStyle?.text}`}>
                         {data.temperature.toFixed(1)}<span className="text-lg opacity-50">°C</span>
@@ -189,8 +203,7 @@ export default function Dashboard() {
                       <span className={`text-xs font-bold uppercase mt-1 ${tempStyle?.label}`}>{tempStyle?.status}</span>
                     </div>
 
-                    {/* Humidity */}
-                    <div className={`${humStyle?.bg} border ${humStyle?.border} rounded-xl p-4 transition-colors duration-500 relative flex flex-col items-center justify-center text-center`}>
+                    <div className={`${humStyle?.bg} border ${humStyle?.border} rounded-xl p-4 transition-colors duration-500 flex flex-col items-center justify-center text-center`}>
                       <span className="text-2xl mb-1">{humStyle?.icon}</span>
                       <div className={`text-3xl font-black ${humStyle?.text}`}>
                         {data.humidity.toFixed(1)}<span className="text-lg opacity-50">%</span>
@@ -198,8 +211,7 @@ export default function Dashboard() {
                       <span className={`text-xs font-bold uppercase mt-1 ${humStyle?.label}`}>{humStyle?.status}</span>
                     </div>
 
-                    {/* AQI */}
-                    <div className={`${aqiStyle?.bg} border ${aqiStyle?.border} rounded-xl p-4 transition-colors duration-500 relative flex flex-col items-center justify-center text-center`}>
+                    <div className={`${aqiStyle?.bg} border ${aqiStyle?.border} rounded-xl p-4 transition-colors duration-500 flex flex-col items-center justify-center text-center`}>
                       <span className="text-2xl mb-1">{aqiStyle?.icon}</span>
                       <div className={`text-3xl font-black ${aqiStyle?.text}`}>
                         {data.airQuality}
@@ -207,8 +219,7 @@ export default function Dashboard() {
                       <span className={`text-xs font-bold uppercase mt-1 ${aqiStyle?.label}`}>AQI ({aqiStyle?.status})</span>
                     </div>
 
-                    {/* Light */}
-                    <div className={`${lightStyle?.bg} border ${lightStyle?.border} rounded-xl p-4 transition-colors duration-500 relative flex flex-col items-center justify-center text-center`}>
+                    <div className={`${lightStyle?.bg} border ${lightStyle?.border} rounded-xl p-4 transition-colors duration-500 flex flex-col items-center justify-center text-center`}>
                       <span className="text-2xl mb-1">{lightStyle?.icon}</span>
                       <div className={`text-3xl font-black ${lightStyle?.text}`}>
                         {data.lightLevel.toFixed(0)}<span className="text-lg opacity-50">%</span>
@@ -219,8 +230,7 @@ export default function Dashboard() {
                 )}
               </div>
               
-              {/* Metadata Footer */}
-              <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between">
+              <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between mt-auto">
                 <span>ID: {data?.deviceId || 'N/A'}</span>
                 <span>{lastFetchTime?.toLocaleTimeString() || 'N/A'}</span>
               </div>
@@ -230,63 +240,33 @@ export default function Dashboard() {
           {/* HISTORICAL CHARTS (Right Side) */}
           <div className="lg:col-span-2 flex flex-col gap-6">
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col h-full">
-              <div className="bg-slate-800 px-6 py-4">
-                <h2 className="text-sm font-semibold text-white uppercase tracking-wider">Historical Trend Analysis (Last 50 Readings)</h2>
+              <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
+                <h2 className="text-sm font-semibold text-white uppercase tracking-wider">Historical Trend Analysis</h2>
+                <span className="text-xs text-slate-400">Last 50 Readings</span>
               </div>
-              <div className="p-6 flex-grow min-h-[400px]">
+              <div className="p-6 flex-grow min-h-[350px]">
                 {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <LineChart data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis 
-                        dataKey="time" 
-                        tick={{ fontSize: 12, fill: '#64748b' }} 
-                        tickMargin={10}
-                        minTickGap={30}
-                      />
-                      <YAxis 
-                        yAxisId="left" 
-                        tick={{ fontSize: 12, fill: '#64748b' }} 
-                        tickLine={false} 
-                        axisLine={false} 
-                      />
-                      <YAxis 
-                        yAxisId="right" 
-                        orientation="right" 
-                        tick={{ fontSize: 12, fill: '#64748b' }} 
-                        tickLine={false} 
-                        axisLine={false} 
-                      />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                      />
+                      <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} tickMargin={10} minTickGap={30} />
+                      
+                      {/* Left Axis for Temp/Hum (0-100 range) */}
+                      <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      {/* Right Axis for AQI (0-500 range) */}
+                      <YAxis yAxisId="right" orientation="right" domain={[0, 500]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      
+                      <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                       <Legend wrapperStyle={{ paddingTop: '20px' }}/>
-                      <Line 
-                        yAxisId="left" 
-                        type="monotone" 
-                        dataKey="Temperature" 
-                        stroke="#ef4444" 
-                        strokeWidth={3} 
-                        dot={false} 
-                        activeDot={{ r: 6 }} 
-                      />
-                      <Line 
-                        yAxisId="left" 
-                        type="monotone" 
-                        dataKey="Humidity" 
-                        stroke="#3b82f6" 
-                        strokeWidth={3} 
-                        dot={false} 
-                      />
-                      <Line 
-                        yAxisId="right" 
-                        type="monotone" 
-                        dataKey="AirQuality" 
-                        name="AQI" 
-                        stroke="#eab308" 
-                        strokeWidth={3} 
-                        dot={false} 
-                      />
+
+                      {/* --- THRESHOLD REFERENCE LINES --- */}
+                      <ReferenceLine y={30} yAxisId="left" stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} label={{ position: 'insideTopLeft', value: 'Temp Max (30°C)', fill: '#ef4444', fontSize: 10 }} />
+                      <ReferenceLine y={60} yAxisId="left" stroke="#3b82f6" strokeDasharray="3 3" strokeOpacity={0.5} label={{ position: 'insideTopLeft', value: 'Hum Max (60%)', fill: '#3b82f6', fontSize: 10 }} />
+                      <ReferenceLine y={150} yAxisId="right" stroke="#eab308" strokeDasharray="3 3" strokeOpacity={0.5} label={{ position: 'insideTopRight', value: 'AQI Max (150)', fill: '#eab308', fontSize: 10 }} />
+
+                      <Line yAxisId="left" type="monotone" dataKey="Temperature" stroke="#ef4444" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
+                      <Line yAxisId="left" type="monotone" dataKey="Humidity" stroke="#3b82f6" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="AirQuality" name="AQI" stroke="#eab308" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -297,8 +277,79 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
         </div>
+
+        {/* HISTORY DATA TABLE SECTION */}
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+          <div className="bg-slate-800 px-6 py-4 flex justify-between items-center border-b border-slate-700">
+            <h2 className="text-sm font-semibold text-white uppercase tracking-wider">Recent Telemetry Log</h2>
+            <span className="text-xs text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-600">Showing {historyData.length} entries</span>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-6 py-4 font-semibold">Timestamp</th>
+                  <th className="px-6 py-4 font-semibold">Status</th>
+                  <th className="px-6 py-4 font-semibold">Temperature</th>
+                  <th className="px-6 py-4 font-semibold">Humidity</th>
+                  <th className="px-6 py-4 font-semibold">AQI</th>
+                  <th className="px-6 py-4 font-semibold">Light</th>
+                  <th className="px-6 py-4 font-semibold">Trigger Reasons</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {historyData.map((row) => (
+                  <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${row.alert ? 'bg-red-50/30' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap text-slate-600 font-medium">
+                      {new Date(row.ts_cloud).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {row.alert ? (
+                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold border border-red-200">ALERT</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-bold border border-emerald-200">NORMAL</span>
+                      )}
+                    </td>
+                    <td className={`px-6 py-4 whitespace-nowrap font-medium ${row.temperature > 30 ? 'text-red-600' : 'text-slate-700'}`}>
+                      {row.temperature.toFixed(1)} °C
+                    </td>
+                    <td className={`px-6 py-4 whitespace-nowrap font-medium ${row.humidity > 60 ? 'text-blue-600' : 'text-slate-700'}`}>
+                      {row.humidity.toFixed(1)} %
+                    </td>
+                    <td className={`px-6 py-4 whitespace-nowrap font-medium ${row.airQuality > 150 ? 'text-amber-600' : 'text-slate-700'}`}>
+                      {row.airQuality}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-slate-700">
+                      {row.lightLevel.toFixed(0)} %
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-500">
+                      {row.alertReasons && row.alertReasons.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {row.alertReasons.map((r, i) => (
+                            <span key={i} className="bg-red-100 text-red-600 px-2 py-0.5 rounded border border-red-200">{r}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                
+                {historyData.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                      No telemetry data found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </main>
   );
